@@ -104,55 +104,66 @@ class Game {
 
         // Setup Distractors
         distractors.forEach(asset => {
-            // Random count 4-5
-            const count = Math.floor(Math.random() * 2) + 4;
+            // Random count 8-10
+            const count = Math.floor(Math.random() * 3) + 8;
             for(let i=0; i<count; i++) {
                 itemsToPlace.push({ ...asset, type: 'distractor', uniqueId: Math.random() });
             }
         });
 
-        // Shuffle placement order
-        itemsToPlace.sort(() => Math.random() - 0.5);
-
-        // Place on board
+        // Place on board (sorting happens inside placeItems)
         this.placeItems(itemsToPlace);
         this.renderLegend();
         this.updateRemainingCount();
     }
 
     placeItems(items) {
-        // Need container dimensions for overlap check
         const cw = this.ui.gameArea.offsetWidth;
         const ch = this.ui.gameArea.offsetHeight;
+        const minDim = Math.min(cw, ch);
+        
+        // Reduced base size to ~7% of screen dimension to fit ~120 items tightly
+        const baseSizeRef = Math.max(35, minDim * 0.07);
+
+        // 1. Prepare items with sizes
+        const preparedItems = items.map(item => {
+            const scale = 0.7 + Math.random() * 0.6; // 0.7x to 1.3x variation
+            const size = baseSizeRef * scale;
+            return { ...item, size };
+        });
+
+        // 2. Sort items largest to smallest (Bin Packing heuristic)
+        // This makes it easier to find spots for big items first, then fill gaps with small ones.
+        preparedItems.sort((a, b) => b.size - a.size);
 
         const placedRects = []; 
         
-        items.forEach(item => {
-            // Random size: varies a little. 
-            // Base size relative to screen. Mobile needs bigger touch targets.
-            // Let's say base size is ~10-15% of min dimension, constrained to px limits.
-            const minDim = Math.min(cw, ch);
-            const baseSize = Math.max(50, minDim * 0.12); 
-            const scale = 0.8 + Math.random() * 0.5; // 0.8x to 1.3x
-            const size = baseSize * scale;
-
+        preparedItems.forEach(item => {
+            let size = item.size;
             let x, y, valid = false;
             let attempts = 0;
+            const maxAttempts = 500;
             
             // Try to place without overlap
-            while(!valid && attempts < 100) {
-                // Keep within bounds padding
-                const padding = size; 
+            while(!valid && attempts < maxAttempts) {
                 x = Math.random() * (cw - size);
                 y = Math.random() * (ch - size);
 
-                // Check collision
-                const newRect = { left: x, top: y, right: x + size, bottom: y + size };
+                // Clamp to positive
+                if (x < 0) x = 0;
+                if (y < 0) y = 0;
+
+                // Define rect with small margin to prevent touching
+                const margin = 2;
+                const newRect = { 
+                    left: x - margin, 
+                    top: y - margin, 
+                    right: x + size + margin, 
+                    bottom: y + size + margin 
+                };
                 
                 let overlap = false;
                 for (const rect of placedRects) {
-                     // Check intersection with slight buffer for easier placement?
-                     // Strict non-overlap requested.
                      if (newRect.left < rect.right && newRect.right > rect.left &&
                          newRect.top < rect.bottom && newRect.bottom > rect.top) {
                          overlap = true;
@@ -163,14 +174,18 @@ class Game {
                 if (!overlap) {
                     valid = true;
                     placedRects.push(newRect);
+                } else {
+                    attempts++;
+                    // Adaptive shrinking: if we can't fit it, shrink it gradually
+                    // This allows items to squeeze in rather than overlap
+                    if (attempts % 50 === 0 && size > 20) {
+                        size *= 0.95;
+                    }
                 }
-                attempts++;
             }
             
-            // Even if overlap (max attempts reached), place it anyway to ensure all items appear
-            // (Or we could skip, but skipping targets breaks the game)
+            // Last resort: Place random if still fails (rare with shrinking)
             if (!valid) {
-                // If we failed to find a spot, just place random
                 x = Math.random() * (cw - size);
                 y = Math.random() * (ch - size);
             }
@@ -181,10 +196,14 @@ class Game {
             el.style.left = `${x}px`;
             el.style.top = `${y}px`;
             el.style.width = `${size}px`;
+            el.style.height = `${size}px`;
             
             // Random rotation
             const rot = Math.random() * 60 - 30;
             el.style.transform = `rotate(${rot}deg)`;
+            
+            // Z-index handling: Since we render largest first (bottom of DOM), 
+            // smallest are last (top of DOM). This prevents small items from hiding behind big ones.
             
             el.onclick = (e) => this.handleItemClick(e, item, el);
             
