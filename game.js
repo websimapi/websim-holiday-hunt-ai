@@ -104,8 +104,8 @@ class Game {
 
         // Setup Distractors
         distractors.forEach(asset => {
-            // Random count 8-10
-            const count = Math.floor(Math.random() * 3) + 8;
+            // Increased count significantly for density: 12-18 copies per distractor
+            const count = Math.floor(Math.random() * 7) + 12;
             for(let i=0; i<count; i++) {
                 itemsToPlace.push({ ...asset, type: 'distractor', uniqueId: Math.random() });
             }
@@ -122,12 +122,18 @@ class Game {
         const ch = this.ui.gameArea.offsetHeight;
         const minDim = Math.min(cw, ch);
         
-        // Reduced base size to ~7% of screen dimension to fit ~120 items tightly
-        const baseSizeRef = Math.max(35, minDim * 0.07);
+        // Reduced base size to ~6% of screen dimension to fit ~200 items tightly with overlap
+        const baseSizeRef = Math.max(25, minDim * 0.06);
 
         // 1. Prepare items with sizes
         const preparedItems = items.map(item => {
-            const scale = 0.7 + Math.random() * 0.6; // 0.7x to 1.3x variation
+            // Increased variance: 0.4x to 1.6x for more variety
+            let scale;
+            if (item.type === 'distractor') {
+                scale = 0.4 + Math.random() * 1.2; 
+            } else {
+                scale = 0.6 + Math.random() * 0.8;
+            }
             const size = baseSizeRef * scale;
             return { ...item, size };
         });
@@ -142,7 +148,7 @@ class Game {
             let size = item.size;
             let x, y, valid = false;
             let attempts = 0;
-            const maxAttempts = 500;
+            const maxAttempts = 1000;
             
             // Try to place without overlap
             while(!valid && attempts < maxAttempts) {
@@ -153,13 +159,22 @@ class Game {
                 if (x < 0) x = 0;
                 if (y < 0) y = 0;
 
-                // Define rect with small margin to prevent touching
-                const margin = 2;
+                // Hitbox reduction for tighter packing (simulating wrapping)
+                // We use a smaller collision box than the visual image (70%)
+                // This allows transparent areas to overlap, creating a clustered pile effect
+                const hitScale = 0.7; 
+                const hitSize = size * hitScale;
+                const hitOffset = (size - hitSize) / 2;
+
+                const hitX = x + hitOffset;
+                const hitY = y + hitOffset;
+
+                // Define rect for collision
                 const newRect = { 
-                    left: x - margin, 
-                    top: y - margin, 
-                    right: x + size + margin, 
-                    bottom: y + size + margin 
+                    left: hitX, 
+                    top: hitY, 
+                    right: hitX + hitSize, 
+                    bottom: hitY + hitSize 
                 };
                 
                 let overlap = false;
@@ -177,14 +192,13 @@ class Game {
                 } else {
                     attempts++;
                     // Adaptive shrinking: if we can't fit it, shrink it gradually
-                    // This allows items to squeeze in rather than overlap
-                    if (attempts % 50 === 0 && size > 20) {
+                    if (attempts % 50 === 0 && size > 15) {
                         size *= 0.95;
                     }
                 }
             }
             
-            // Last resort: Place random if still fails (rare with shrinking)
+            // Last resort: Place random if still fails
             if (!valid) {
                 x = Math.random() * (cw - size);
                 y = Math.random() * (ch - size);
